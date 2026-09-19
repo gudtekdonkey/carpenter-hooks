@@ -1,0 +1,5 @@
+# ⛔ blank_issues_enabled MUST stay true. Carpenter's Apply page opens
+# `https://github.com/<owner>/<name>/issues/new?title=…&body=…` — a prefilled BLANK issue, carrying
+# every value its pre-check measured. GitHub honours `title` / `body` only on the blank editor; with
+# blank issues disabled that URL redirects to the template chooser and the measured body is LOST.
+blank_issues_enabled: true
