@@ -1,0 +1,32 @@
+[package]
+name = "mock_hook"
+version = "0.1.0"
+description = "Reference pass-through hook for carpenter_amm. Not deployed on any cluster."
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "mock_hook"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "=1.2.0"
+bytemuck = { version = "1", features = ["derive", "min_const_generics"] }
+
+# ⛔ THIS CRATE CANNOT BE RESOLVED FROM THIS REPOSITORY TODAY. `carpenter-types` is not on
+#    crates.io and its source is not public yet, so `src/lib.rs` as published does NOT build
+#    standalone — it is a faithful reference, not a template you can `cargo build` unchanged.
+#    `starter/README.md` → "Building" lists the SIX items `src/lib.rs` takes from this crate, with
+#    their definitions, so you can supply them yourself in the meantime. Uncomment and point this
+#    line at whichever of the two you have:
+# carpenter-types = { path = "../path/to/carpenter-types" }
+# carpenter-types = { git = "…", tag = "…" }

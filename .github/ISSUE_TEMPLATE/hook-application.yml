@@ -1,0 +1,139 @@
+name: Hook approval application
+description: Apply for a hook program to be approved on Carpenter.
+title: "Hook approval: <name> (<program>)"
+labels: ["application"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Carpenter's Apply page fills this in for you.** It reads your program, its `ProgramData`
+        and your `["hook_config"]` account, runs the same checks the chain runs, and opens an issue
+        carrying every value it measured — so a reviewer reads the same figures you saw. Use it if
+        you can; this form is the by-hand route.
+
+        Fields marked **(auto)** are ones the Apply page fills from the chain. Filling them in by
+        hand is fine — a reviewer reads the accounts either way.
+
+        Approval is a **compatibility check signed by one key**. It is not an audit and not an
+        endorsement. Nothing here promises a review, an outcome or a date.
+  - type: input
+    id: program
+    attributes:
+      label: Program id (auto)
+      description: The hook program's address, base58.
+      placeholder: e.g. 3KLZ1HMJSyfoAp9BrQuuiXtw6oAP2MHN2NqXZGrBUSxG
+    validations:
+      required: true
+  - type: dropdown
+    id: cluster
+    attributes:
+      label: Cluster (auto)
+      options:
+        - devnet
+        - mainnet-beta
+    validations:
+      required: true
+  - type: input
+    id: name
+    attributes:
+      label: Name
+      description: >-
+        What `ApprovedHook.name` will store, and what a directory prints. 32 BYTES, not 32
+        characters — `é` is two bytes and an emoji four.
+    validations:
+      required: true
+  - type: input
+    id: contact
+    attributes:
+      label: Contact
+      description: One handle or address a reviewer can reach you at — X, Telegram or email. At most 80 characters.
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source repository
+      description: An https:// address. The review reads your source.
+    validations:
+      required: true
+  - type: input
+    id: audit
+    attributes:
+      label: Audit report (optional)
+      description: An https:// address, if you have one. Leave blank if not.
+    validations:
+      required: false
+  - type: textarea
+    id: summary
+    attributes:
+      label: What the hook does
+      description: Two lines. At most 240 characters.
+    validations:
+      required: true
+  - type: input
+    id: pools
+    attributes:
+      label: Which pools
+      description: One line — which pools this hook is for. At most 120 characters.
+    validations:
+      required: true
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Terms asked for
+      description: >-
+        The two terms the header cannot carry, so they are yours to ask for.
+        `max_rounds` and `callback_accounts` are NOT asked for here — they are your header's, and a
+        reviewer reads them off the chain.
+      options:
+        - label: >-
+            allow_public_pools — anyone may open a pool against this hook. Leave UNCHECKED to keep
+            pools closed; closed requires `BEFORE_INITIALIZE` in your flags, because your own
+            `before_initialize` is what refuses an initializer.
+          required: false
+        - label: >-
+            allow_exclusivity — this hook's `hook_authority` may call `register_mint_exclusivity`.
+          required: false
+  - type: textarea
+    id: header
+    attributes:
+      label: Header, as read (auto)
+      description: The 8-byte `HookInterfaceHeader` at your `["hook_config"]` PDA.
+      value: |
+        - version:
+        - max_rounds:
+        - callback_accounts:
+        - flags:
+    validations:
+      required: false
+  - type: textarea
+    id: addresses
+    attributes:
+      label: Addresses, as derived (auto)
+      value: |
+        - ["hook_config"]:
+        - ["hook_authority"]:
+        - ProgramData slot:
+    validations:
+      required: false
+  - type: textarea
+    id: precheck
+    attributes:
+      label: Pre-check, as the page ran it (auto)
+      description: >-
+        The nine rows, in the order the chain refuses them. The Apply page fills the marks and what
+        each one found; by hand, leave what you have not checked blank.
+      value: |
+        | check | mark | what it found | refusal if it fails |
+        | --- | --- | --- | --- |
+        | approved | | | init would fail (a hook is approved once) |
+        | executable | | | HookNotExecutable |
+        | programdata | | | HookNotExecutable |
+        | hookConfig | | | HookHeaderMismatch |
+        | header | | | HookHeaderMismatch |
+        | flags | | | HookFlagsInvalid |
+        | publicPools | | | HookFlagsInvalid |
+        | roundsCap | | | RoundsTooHigh |
+        | roundsAfterSwap | | | HookFlagsInvalid |
+    validations:
+      required: false
