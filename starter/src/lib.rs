@@ -49,7 +49,8 @@
 //!
 //! ⛔ Never deployed: no devnet entry in `Anchor.toml`, excluded from every deploy script.
 //! ⛔ [`MockState`] is written by the TESTS (LiteSVM `set_account`), never by an instruction: the
-//! instruction set stays the one `tests/tests/layouts.rs` pins, `forward` included.
+//! instruction set stays the one `tests/tests/layouts.rs` pins, `forward` included (built with the
+//! `test-fixture` feature; without it `forward` does not exist — audit finding 2026-09-28).
 //! ⚠ The three swap callbacks return `Result<()>` and call `set_return_data` themselves, because
 //! Anchor sets return data for any non-unit return type and two of the return modes must NOT.
 //! `HookRecordV1` stays in the IDL through the eight pass-through callbacks.
@@ -163,6 +164,10 @@ pub mod mock_hook {
     /// data is the callee's (`HookOpResultV1` for the AMM).
     /// ⚠ Renamed from `hook_invoke` at wave 3 (2026-09-17): ONE instruction serves A1's
     /// hook-authority cases and A2's suites.
+    /// ⛔ TEST-ONLY (audit finding, 2026-09-28): compiled only with the `test-fixture` feature.
+    /// It lets ANY caller make this program's `["hook_authority"]` PDA sign an arbitrary CPI —
+    /// e.g. `carpenter_amm::hook_withdraw`, draining every pool's claims. Never ship it.
+    #[cfg(feature = "test-fixture")]
     pub fn forward<'info>(ctx: Context<'info, Forward<'info>>, data: Vec<u8>) -> Result<()> {
         let (authority, bump) = Pubkey::find_program_address(&[carpenter_types::seeds::HOOK_AUTHORITY], &crate::ID);
         require_keys_eq!(ctx.accounts.hook_authority.key(), authority, MockHookError::WrongAuthority);
@@ -485,6 +490,7 @@ pub struct Callback<'info> {
     pub pool_signer: UncheckedAccount<'info>,
 }
 
+#[cfg(feature = "test-fixture")]
 #[derive(Accounts)]
 pub struct Forward<'info> {
     /// CHECK: must be this program's `["hook_authority"]` PDA (checked in the handler); it never
