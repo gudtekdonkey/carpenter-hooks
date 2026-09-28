@@ -24,7 +24,7 @@ Delete it.
 | `HookConfig` | the account that header lives in: the 8 interface bytes first, then whatever you want. The mock keeps an `authority` and its own fields after them. `const _: () = assert!(size_of == 128)` and the `offset_of!` asserts are how it keeps that shape honest — keep that habit. |
 | the eight pass-through callbacks | the shape of a callback that has nothing to say: require `pool_signer` to have signed, return `HookRecordV1::pass_through(version, phase, round)`. |
 | `before_swap` / `after_swap` / `after_actions` | the three that take full `Args` and reply with `set_return_data`. Note the comment on why they return `Result<()>` rather than a typed value. |
-| `forward` | a **hook-initiated** call: the hook CPIs into another program with its own `["hook_authority"]` PDA signing (`invoke_signed`). This is how a hook acts on the AMM. |
+| `forward` | **test-only** (compiled only with the `test-fixture` feature): a generic signed-CPI proxy the AMM's own tests use to act as a hook. It is NOT how a deployed hook acts on the AMM — a real hook makes each `invoke_signed` call from its own logic, for the one instruction it means, with its own checks. |
 | `Callback` | every callback's accounts: `pool_signer` first, then your slice as remaining accounts. |
 | `HookRecordV1` / `HookAction` | the record's exact Borsh shape, as the IDL carries it. |
 
@@ -44,7 +44,10 @@ The rules those pieces have to satisfy are in [`../docs/hook-interface.md`](../d
    feature.
 5. **Delete the test scaffolding**: `MockState`, `MockScript`, `ScriptAction`, `ScriptRound`,
    `SENTINEL`, the `RETURN_*` / `DELTA_*` / `ACTION_*` constants, `set_reported_fees`,
-   `reported_fees`, and the `scripted` machinery that reads them.
+   `reported_fees`, the `scripted` machinery that reads them, **and `forward` with its `Forward`
+   accounts struct and the `test-fixture` feature**. ⛔ `forward` is a generic signed-CPI proxy: anyone
+   can make your `["hook_authority"]` PDA sign any instruction, so it hands your pools' claims (e.g.
+   through `hook_withdraw`) to anyone. Never deploy it, even behind the feature (audit finding 2026-09-28).
 
 ## What must not change
 

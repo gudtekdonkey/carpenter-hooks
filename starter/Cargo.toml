@@ -17,6 +17,9 @@ no-entrypoint = []
 no-idl = []
 no-log-ix-name = []
 idl-build = ["anchor-lang/idl-build"]
+# ⛔ TEST-ONLY (audit finding 2026-09-28): compiles the `forward` signed-CPI proxy. Never enable
+#    in a deployed build — it lets anyone sign as this hook's ["hook_authority"] PDA.
+test-fixture = []
 
 [dependencies]
 anchor-lang = "=1.2.0"
