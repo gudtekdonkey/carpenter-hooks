@@ -80,6 +80,8 @@ Use Carpenter's **Apply** page. It reads your program, your `ProgramData` and yo
 account, runs the nine-row pre-check, and opens a prefilled issue here carrying every value it
 measured — so a reviewer reads the same figures you saw.
 
+⛔ **Only a NON-UPGRADEABLE hook is listed** (owner ruling 2026-10-05: "hooks should be non-upgradebale to be listed by us"). Before applying, set your program's upgrade authority to none (`solana program set-upgrade-authority <program> --final`). Carpenter refuses an application whose `ProgramData` still names an upgrade authority. Why: a hook runs on every swap and liquidity change of its pools and signs as the pool, so code that can change after review could block withdrawals or misuse that signature. FLOOR's own hook is the one exception: it is upgradeable by FLOOR's deployer key, as published.
+
 Applying by hand works too: open an issue on the **Hook approval application** form and fill it in.
 The form asks for the same things; it just does not have the measured values, which a reviewer will
 then read for themselves.
