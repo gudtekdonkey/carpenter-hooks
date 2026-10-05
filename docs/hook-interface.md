@@ -252,7 +252,8 @@ What `approve_hook` writes, and what anyone can read back at `["approved_hook", 
 | 88 | `approved_slot` | `u64` |
 | 96 | `name` | `[u8; 32]`, zero-padded UTF-8 |
 | 128 | `allow_exclusivity` | `u8` |
-| 129 | `reserved` | `[u8; 63]` |
+| 129 | `base_transfer_hook` | `Pubkey` — the ONE armed Token-2022 transfer hook admitted on a base mint for pools of this hook (zero = none); set once by `set_base_transfer_hook` |
+| 161 | `reserved` | `[u8; 31]` |
 
 ⛔ `name` is **32 bytes, not 32 characters** — `é` is two bytes and an emoji four.
 
