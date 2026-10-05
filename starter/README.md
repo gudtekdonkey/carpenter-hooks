@@ -22,7 +22,7 @@ Delete it.
 |---|---|
 | `initialize_hook_config` | writes the 8-byte `HookInterfaceHeader` (`version`, `bump`, `max_rounds`, `callback_accounts`, `flags`, `authority_bump`) into the `["hook_config"]` PDA. This is the account `approve_hook` reads. |
 | `HookConfig` | the account that header lives in: the 8 interface bytes first, then whatever you want. The mock keeps an `authority` and its own fields after them. `const _: () = assert!(size_of == 128)` and the `offset_of!` asserts are how it keeps that shape honest — keep that habit. |
-| the eight pass-through callbacks | the shape of a callback that has nothing to say: require `pool_signer` to have signed, return `HookRecordV1::pass_through(version, phase, round)`. |
+| the eight pass-through callbacks | the shape of a callback that has nothing to say: run `verify_pool_signer` (signed, owned by `carpenter_amm`, a `Pool` whose `hook` is this program, the PDA derived from its own fields), return `HookRecordV1::pass_through(version, phase, round)`. |
 | `before_swap` / `after_swap` / `after_actions` | the three that take full `Args` and reply with `set_return_data`. Note the comment on why they return `Result<()>` rather than a typed value. |
 | `forward` | **test-only** (compiled only with the `test-fixture` feature): a generic signed-CPI proxy the AMM's own tests use to act as a hook. It is NOT how a deployed hook acts on the AMM — a real hook makes each `invoke_signed` call from its own logic, for the one instruction it means, with its own checks. |
 | `Callback` | every callback's accounts: `pool_signer` first, then your slice as remaining accounts. |
@@ -62,8 +62,14 @@ The rules those pieces have to satisfy are in [`../docs/hook-interface.md`](../d
 - **The record's Borsh shape** — `HookRecordV1` and `HookAction`, field for field, in that order. The
   AMM's decode is strict: a missing field, an extra field or one trailing byte is `HookBadReturn`.
   (The mock's own comment on `fees` is there because dropping that field failed twelve tests.)
-- **`pool_signer` must have signed.** Every callback checks it. Without that check, anyone can call
-  your hook pretending to be a pool.
+- **`pool_signer` must be the real Carpenter pool of THIS hook — a signature alone proves nothing.**
+  Any keypair can sign, and anyone can `assign` an account to `carpenter_amm`. Every callback runs
+  `verify_pool_signer`: signed, owned by `carpenter_amm` (`bwAPyuax51SULNhTY1JCKhYZWMHmsveZyZG5T6hzofh`),
+  a `Pool` account whose `hook` field is your program id, and whose key is the PDA
+  `["pool", mint0, mint1, fee u32 LE, tick_spacing u16 LE, hook, [bump]]` under `carpenter_amm`,
+  re-derived from the pool's own bytes. Only `carpenter_amm` can sign as that PDA. Without this,
+  anyone can call your hook directly with forged swap data. If you keep per-pool state, also bind
+  it to the pool key (FLOOR's hook compares `pool_signer` to the pool it recorded at registration).
 - **The callback names.** `before_initialize`, `after_initialize`, `before_add_liquidity`,
   `after_add_liquidity`, `before_remove_liquidity`, `after_remove_liquidity`, `before_swap`,
   `after_swap`, `before_donate`, `after_donate`, `after_actions` — the AMM CPIs by discriminator,
