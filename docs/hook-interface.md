@@ -123,7 +123,12 @@ The `phase` byte your callbacks are handed, and the one your record echoes back:
 by your record's `want_callback`.
 
 Every callback is a CPI into your program with the **pool PDA as a signer** (read-only) followed by
-your slice (§5). You reply by setting the call's **return data** to a Borsh-encoded `HookRecordV1`;
+your slice (§5). ⛔ **Verify it is that PDA, on every callback**: `is_signer` alone is forgeable (any
+keypair signs; any account can be `assign`ed to `carpenter_amm`). Require that `pool_signer` is
+owned by `carpenter_amm`, is a `Pool` account whose `hook` field is your program id, and that its key
+equals `create_program_address(["pool", mint0, mint1, fee u32 LE, tick_spacing u16 LE, hook, [bump]],
+carpenter_amm)` from its own fields — only `carpenter_amm` can sign as that. The starter's
+`verify_pool_signer` does exactly this. You reply by setting the call's **return data** to a Borsh-encoded `HookRecordV1`;
 the decode is strict, and a record the AMM cannot decode — including one with a trailing byte, or no
 return data at all — is `HookBadReturn`. The record's shape is in
 [`starter/src/lib.rs`](../starter/src/lib.rs) (`HookRecordV1`, `HookAction`), which is the twin the

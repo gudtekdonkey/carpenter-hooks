@@ -5,7 +5,10 @@
 //!
 //! - `initialize_hook_config(flags, max_rounds, callback_accounts)` writes the 8-byte interface
 //!   header `carpenter_amm::approve_hook` reads, at `["hook_config"]` under this program.
-//! - The eight non-swap callbacks are pass-through: `pool_signer` must SIGN; the record is the echo
+//! - ⛔ Every callback first runs [`verify_pool_signer`]: `pool_signer` must SIGN, be owned by
+//!   `carpenter_amm`, be a `Pool` whose `hook` is this program, and be the PDA derived from that
+//!   pool's own fields — a bare signature proves nothing (fixed 2026-10-05).
+//! - The eight non-swap callbacks are pass-through: the record is the echo
 //!   of the `version / phase / round` prefix and nothing else.
 //! - `before_swap`, `after_swap` and `after_actions` decode their FULL Args (§5.3 twins below).
 //!   With no [`MockState`] as the first slice account they are pass-through too. With one, they
@@ -245,6 +248,70 @@ fn reported_fees<'info>(remaining: &'info [AccountInfo<'info>]) -> Result<Option
     Ok(None)
 }
 
+/// `carpenter_amm`'s program id (`bwAPyuax51SULNhTY1JCKhYZWMHmsveZyZG5T6hzofh`).
+pub const CARPENTER_AMM_PROGRAM: Pubkey = pubkey!("bwAPyuax51SULNhTY1JCKhYZWMHmsveZyZG5T6hzofh");
+/// `carpenter_amm`'s `Pool` account: 8-byte discriminator + 632-byte struct.
+pub const POOL_ACCOUNT_LEN: usize = 8 + 632;
+// Struct offsets (account offset = struct offset + 8), from `carpenter_types::layout::Pool`.
+const POOL_BUMP: usize = 8 + 1;
+const POOL_TICK_SPACING: usize = 8 + 4;
+const POOL_FEE: usize = 8 + 8;
+const POOL_MINT0: usize = 8 + 24;
+const POOL_MINT1: usize = 8 + 56;
+const POOL_HOOK: usize = 8 + 88;
+
+/// The `Pool` account discriminator: `sha256("account:Pool")[..8]`.
+pub fn pool_discriminator() -> [u8; 8] {
+    let h = anchor_lang::solana_program::hash::hash(b"account:Pool").to_bytes();
+    let mut d = [0u8; 8];
+    d.copy_from_slice(&h[..8]);
+    d
+}
+
+/// ⛔ EVERY callback calls this first. `is_signer` alone is NOT enough: any keypair can sign, and
+/// anyone can `assign` an account to `carpenter_amm`, so a hook that only checks the signature
+/// can be called directly with forged swap data. What cannot be forged is a signature by a PDA
+/// of `carpenter_amm`: only that program can produce it (`invoke_signed`). So this requires
+///
+/// 1. `pool_signer` signed;
+/// 2. it is owned by `carpenter_amm` and is a `Pool` account (length + discriminator);
+/// 3. its `hook` field is THIS program — a pool of another hook is refused;
+/// 4. its key is the PDA `carpenter_amm` derives from the pool's own fields,
+///    `["pool", mint0, mint1, fee u32 LE, tick_spacing u16 LE, hook, [bump]]` — so the signature
+///    came from `carpenter_amm` itself, for a real pool bound to this hook.
+///
+/// FLOOR's hook gets the same guarantee a different way (D-14): it compares `pool_signer.key` to
+/// the `amm_pool` it recorded in its own per-pool account at `register_pool`. A hook that keeps
+/// per-pool state should do that TOO; this check is the minimum every hook needs.
+pub fn verify_pool_signer(pool_signer: &AccountInfo) -> Result<()> {
+    require!(pool_signer.is_signer, MockHookError::PoolNotSigner);
+    require_keys_eq!(*pool_signer.owner, CARPENTER_AMM_PROGRAM, MockHookError::NotCarpenterPool);
+    let data = pool_signer.try_borrow_data()?;
+    check_pool_account(pool_signer.key, &data, &crate::ID)
+}
+
+/// The pure half of [`verify_pool_signer`]: the pool account's bytes against its key.
+pub fn check_pool_account(key: &Pubkey, data: &[u8], hook_program: &Pubkey) -> Result<()> {
+    require!(data.len() >= POOL_ACCOUNT_LEN, MockHookError::NotCarpenterPool);
+    require!(data[..8] == pool_discriminator(), MockHookError::NotCarpenterPool);
+    require!(data[POOL_HOOK..POOL_HOOK + 32] == hook_program.to_bytes(), MockHookError::PoolOfAnotherHook);
+    let pda = Pubkey::create_program_address(
+        &[
+            carpenter_types::seeds::POOL,
+            &data[POOL_MINT0..POOL_MINT0 + 32],
+            &data[POOL_MINT1..POOL_MINT1 + 32],
+            &data[POOL_FEE..POOL_FEE + 4],
+            &data[POOL_TICK_SPACING..POOL_TICK_SPACING + 2],
+            &data[POOL_HOOK..POOL_HOOK + 32],
+            &[data[POOL_BUMP]],
+        ],
+        &CARPENTER_AMM_PROGRAM,
+    )
+    .map_err(|_| error!(MockHookError::NotCarpenterPool))?;
+    require_keys_eq!(*key, pda, MockHookError::NotCarpenterPool);
+    Ok(())
+}
+
 /// Echo the Args prefix and say nothing else.
 ///
 /// ⚠ These callbacks declare `version, phase, round` as their arguments: every §5.3 Args begins
@@ -252,7 +319,7 @@ fn reported_fees<'info>(remaining: &'info [AccountInfo<'info>]) -> Result<Option
 /// `deserialize` that ignores the trailing bytes (`anchor-syn 1.2.0
 /// codegen/program/handlers.rs:117`), so one signature accepts the full Args of any phase.
 fn pass_through(ctx: &Context<Callback>, hdr: ArgsHeader) -> Result<HookRecordV1> {
-    require!(ctx.accounts.pool_signer.is_signer, MockHookError::PoolNotSigner);
+    verify_pool_signer(&ctx.accounts.pool_signer)?;
     Ok(TypesRecord::pass_through(hdr.version, hdr.phase, hdr.round).into())
 }
 
@@ -291,7 +358,7 @@ fn u128_of(limbs: [u64; 2]) -> u128 {
 }
 
 fn scripted<'info>(ctx: &Context<'info, Callback<'info>>, hdr: ArgsHeader, view: View<'_>) -> Result<()> {
-    require!(ctx.accounts.pool_signer.is_signer, MockHookError::PoolNotSigner);
+    verify_pool_signer(&ctx.accounts.pool_signer)?;
     let mut rec = TypesRecord::pass_through(hdr.version, hdr.phase, hdr.round);
     let mut return_mode = RETURN_NORMAL;
     // `View` holds references; `matches!` does not move it.
@@ -486,7 +553,9 @@ pub struct InitializeHookConfig<'info> {
 /// Every callback: `pool_signer` first (§5.2), then the hook slice as remaining accounts.
 #[derive(Accounts)]
 pub struct Callback<'info> {
-    /// CHECK: must sign; compared to `MockState.pool` when a script sets it (D-14, mock form).
+    /// CHECK: every callback runs [`verify_pool_signer`]: signed, owned by `carpenter_amm`, a
+    /// `Pool` whose `hook` is this program, and the PDA derived from its own fields. Also compared
+    /// to `MockState.pool` when a script sets it (D-14, mock form).
     pub pool_signer: UncheckedAccount<'info>,
 }
 
@@ -791,4 +860,58 @@ pub enum MockHookError {
     FeesInconsistent,
     #[msg("a HookConfig in the hook slice is not this program's [\"hook_config\"] PDA")]
     ConfigMismatch,
+    #[msg("pool_signer is not a carpenter_amm Pool PDA (owner, discriminator or derivation)")]
+    NotCarpenterPool,
+    #[msg("pool_signer is a carpenter_amm Pool of another hook")]
+    PoolOfAnotherHook,
+}
+
+#[cfg(test)]
+mod pool_signer_tests {
+    use super::*;
+
+    fn pool_bytes(hook: &Pubkey) -> (Pubkey, Vec<u8>) {
+        let (mint0, mint1) = (Pubkey::new_unique(), Pubkey::new_unique());
+        let (fee, ts) = (3000u32.to_le_bytes(), 60u16.to_le_bytes());
+        let (key, bump) = Pubkey::find_program_address(
+            &[carpenter_types::seeds::POOL, mint0.as_ref(), mint1.as_ref(), &fee, &ts, hook.as_ref()],
+            &CARPENTER_AMM_PROGRAM,
+        );
+        let mut d = vec![0u8; POOL_ACCOUNT_LEN];
+        d[..8].copy_from_slice(&pool_discriminator());
+        d[POOL_BUMP] = bump;
+        d[POOL_TICK_SPACING..POOL_TICK_SPACING + 2].copy_from_slice(&ts);
+        d[POOL_FEE..POOL_FEE + 4].copy_from_slice(&fee);
+        d[POOL_MINT0..POOL_MINT0 + 32].copy_from_slice(mint0.as_ref());
+        d[POOL_MINT1..POOL_MINT1 + 32].copy_from_slice(mint1.as_ref());
+        d[POOL_HOOK..POOL_HOOK + 32].copy_from_slice(hook.as_ref());
+        (key, d)
+    }
+
+    #[test]
+    fn a_real_pool_of_this_hook_passes() {
+        let (key, d) = pool_bytes(&crate::ID);
+        assert!(check_pool_account(&key, &d, &crate::ID).is_ok());
+    }
+
+    #[test]
+    fn a_forged_key_is_refused() {
+        let (_, d) = pool_bytes(&crate::ID);
+        assert!(check_pool_account(&Pubkey::new_unique(), &d, &crate::ID).is_err());
+    }
+
+    #[test]
+    fn a_pool_of_another_hook_is_refused() {
+        let other = Pubkey::new_unique();
+        let (key, d) = pool_bytes(&other);
+        assert!(check_pool_account(&key, &d, &crate::ID).is_err());
+    }
+
+    #[test]
+    fn a_wrong_discriminator_or_short_account_is_refused() {
+        let (key, mut d) = pool_bytes(&crate::ID);
+        assert!(check_pool_account(&key, &d[..POOL_ACCOUNT_LEN - 1], &crate::ID).is_err());
+        d[0] ^= 1;
+        assert!(check_pool_account(&key, &d, &crate::ID).is_err());
+    }
 }
